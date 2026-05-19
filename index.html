@@ -1,1 +1,186 @@
+<!-- Index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>條碼掃描入庫</title>
+  <!-- 引入穩定嘅 HTML5 QR Code 掃描庫 -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 15px; background: #f5f5f7; color: #333; }
+    .container { max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    h2 { text-align: center; margin-top: 0; color: #007aff; }
+    .input-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
+    input[type="text"], input[type="number"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+    .scan-btn { background: #34c759; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; margin-top: 5px; }
+    .submit-btn { width: 100%; background: #007aff; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    #reader-wrapper { display: none; margin-bottom: 15px; border: 2px dashed #007aff; border-radius: 8px; overflow: hidden; }
+    #reader { width: 100%; }
+    .status { text-align: center; color: #8e8e93; font-size: 14px; margin-top: 10px; }
+    .close-scan { background: #ff3b30; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
 
+<div class="container">
+  <h2>條碼入庫系統</h2>
+  
+  <!-- 掃描相機畫面貨櫃 -->
+  <div id="reader-wrapper">
+    <button class="scan-btn close-scan" onclick="stopScanner()">關閉相機</button>
+    <div id="reader"></div>
+  </div>
+
+  <!-- 表單欄位 -->
+  <div class="input-group">
+    <label>工單編號</label>
+    <input type="text" id="orderNum" placeholder="請掃描或輸入工單編號">
+    <button class="scan-btn" onclick="startScanner('orderNum')">📷 掃描工單</button>
+  </div>
+
+  <div class="input-group">
+    <label>SKU Number</label>
+    <input type="text" id="skuNum" placeholder="請掃描或輸入 SKU">
+    <button class="scan-btn" onclick="startScanner('skuNum')">📷 掃描 SKU</button>
+  </div>
+
+  <div class="input-group">
+    <label>SN (Serial Number)</label>
+    <input type="text" id="snNum" placeholder="請掃描或輸入 SN">
+    <button class="scan-btn" onclick="startScanner('snNum')">📷 掃描 SN</button>
+  </div>
+
+  <div class="input-group">
+    <label>數量</label>
+    <input type="number" id="quantity" value="1" min="1">
+  </div>
+
+  <div class="input-group">
+    <label>倉庫號碼</label>
+    <!-- 預設為 6181 -->
+    <input type="text" id="whNum" value="6181">
+  </div>
+
+  <button class="submit-btn" onclick="submitToSheet()">確認送出</button>
+  <div id="statusText" class="status"></div>
+</div>
+
+<script>
+  let html5QrcodeScanner = null;
+  let currentTargetId = '';
+
+  // 啟動相機掃描
+  function startScanner(targetId) {
+    currentTargetId = targetId;
+    document.getElementById('reader-wrapper').style.display = 'block';
+    
+    if (html5QrcodeScanner) {
+      html5QrcodeScanner.clear();
+    }
+
+    // 支援 QR code 同埋大部分常見的一維條碼 (Code 128, EAN 等)
+    html5QrcodeScanner = new Html5Qrcode("reader");
+    html5QrcodeScanner.start(
+      { facingMode: "environment" }, // 優先使用後置鏡頭
+      {
+        fps: 10,
+        qrbox: function(width, height) {
+          // 為一維條碼優化：做一個比較扁長嘅掃描框
+          return { width: width * 0.8, height: height * 0.4 };
+        }
+      },
+      onScanSuccess,
+      onScanFailure
+    ).catch(err => {
+      alert("無法啟動相機，請檢查權限設定。");
+      console.error(err);
+    });
+  }
+
+  // 掃描成功回呼
+  function onScanSuccess(decodedText, decodedResult) {
+    // 將結果填入返對應嘅 Input 欄位
+    document.getElementById(currentTargetId).value = decodedText;
+    stopScanner();
+    
+    // 震動提示 (如果電話支援)
+    if (navigator.vibrate) navigator.vibrate(100);
+  }
+
+  function onScanFailure(error) {
+    // 掃描中未偵測到會持續觸發，通常唔使特別處理
+  }
+
+  // 停止相機
+  function stopScanner() {
+    if (html5QrcodeScanner) {
+      html5QrcodeScanner.stop().then(() => {
+        document.getElementById('reader-wrapper').style.display = 'none';
+      }).catch(err => console.error(err));
+    } else {
+      document.getElementById('reader-wrapper').style.display = 'none';
+    }
+  }
+
+  // 送出數據去 Google Sheet
+// 送出數據去 Google Sheet API
+  function submitToSheet() {
+    const statusText = document.getElementById('statusText');
+    statusText.innerText = "正在儲存...";
+    statusText.style.color = "#8e8e93";
+
+    // 將呢度換成你頭先複製嘅 GAS Web App URL !!!
+    const scriptUrl = 'https://script.google.com/macros/s/你嘅部署ID/exec'; 
+
+    const payload = new URLSearchParams({
+      orderNum: document.getElementById('orderNum').value.trim(),
+      skuNum: document.getElementById('skuNum').value.trim(),
+      snNum: document.getElementById('snNum').value.trim(),
+      quantity: document.getElementById('quantity').value,
+      whNum: document.getElementById('whNum').value.trim()
+    });
+
+    // 透過 GET Request 傳送數據
+    fetch(`${scriptUrl}?${payload.toString()}`)
+      .then(response => response.json())
+      .then(data => {
+        if(data.status === "success") {
+          statusText.innerText = data.message;
+          statusText.style.color = "#34c759";
+          
+          // 成功後清空欄位
+          document.getElementById('orderNum').value = '';
+          document.getElementById('skuNum').value = '';
+          document.getElementById('snNum').value = '';
+          document.getElementById('quantity').value = '1';
+        }
+      })
+      .catch(error => {
+        statusText.innerText = "儲存失敗: " + error;
+        statusText.style.color = "#ff3b30";
+      });
+  }
+
+    // 呼叫 Code.gs 的 saveData 函數
+    google.script.run
+      .withSuccessHandler(function(response) {
+        statusText.innerText = response;
+        statusText.style.color = "#34c759";
+        
+        // 成功後清空條碼欄位，保留數量同倉庫預設值
+        document.getElementById('orderNum').value = '';
+        document.getElementById('skuNum').value = '';
+        document.getElementById('snNum').value = '';
+        document.getElementById('quantity').value = '1';
+      })
+      .withFailureHandler(function(err) {
+        statusText.innerText = "儲存失敗: " + err;
+        statusText.style.color = "#ff3b30";
+      })
+      .saveData(payload);
+  }
+</script>
+
+</body>
+</html>
